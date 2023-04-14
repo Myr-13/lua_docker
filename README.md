@@ -1,2 +1,2 @@
-# lua_docker
-Docker in python for lua API
+# Lua docker for luabridge3
+Tool for generate md docks from C++ source code
