@@ -1,5 +1,26 @@
 import os
 import fnmatch
+from docker.indexer import Indexer
+
+
+def progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', print_end='\r'):
+	percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+	filled_length = int(length * iteration // total)
+	bar = fill * filled_length + '-' * (length - filled_length)
+	print(f'\r{prefix} {iteration}/{total} |{bar}| {percent}% {suffix}', end=print_end)
+	# Print New Line on Complete
+	if iteration == total:
+		print()
+
+
+def count_header_files(directory):
+	count = 0
+	for root, dirs, files in os.walk(directory):
+		for file in files:
+			if not fnmatch.fnmatch(file, "*.h") and not fnmatch.fnmatch(file, "*.hpp"):
+				continue
+			count += 1
+	return count
 
 
 class Docker:
@@ -9,44 +30,46 @@ class Docker:
 		self.src_dir = source_directory
 		self.globals = {}
 		self.lua_mapping = {}
-		self.debug = False
 
 	def close(self):
 		self.input_file.close()
 		self.output_file.close()
 
 	def index_sources(self):
+		indexer = Indexer()
+
+		# Count of .h and .hpp files for progress bar
+		total_count = count_header_files(self.src_dir)
+
+		# Indexing
+		count = 0
 		for root, dirs, files in os.walk(self.src_dir):
 			for file in files:
-				if not fnmatch.fnmatch(file, "*.h"):
+				if not fnmatch.fnmatch(file, "*.h") and not fnmatch.fnmatch(file, "*.hpp"):
 					continue
 
-				file_path = os.path.join(root, file)
+				# Progress bar
+				count += 1
+				progress_bar(count, total_count, prefix="Progress:", suffix="Done", length=50)
 
-				if self.debug:
-					print(f"Indexing: {file_path}")
+				file_path = os.path.join(root, file)
 
 				f = open(file_path, "r")
 
 				for line in f:
-					if "(" not in line:
-						continue
-					if " " not in line:
-						continue
+					is_class, class_name = indexer.c_class(line)
+					is_func, func_name, func_type, func_args = indexer.c_function(line)
 
-					line: str = line.replace("\t", "")
-					line: str = line.replace("\n", "")
-					
-					func = line.split("(")
-					func_data = func[0].split(" ")
-					length = len(func_data)
-
-					if length < 2 or length > 2:
-						continue
-
-					self.globals[func_data[1]] = {
-						"type": func_data[0]
-					}
+					if is_class:
+						self.globals[class_name] = {
+							"type": "class"
+						}
+					elif is_func:
+						self.globals[func_name] = {
+							"type": "function",
+							"return_type": func_type,
+							"args": func_args
+						}
 
 				f.close()
 
@@ -56,25 +79,27 @@ class Docker:
 				a = line.split("(")[1]
 				a = a.replace(")", "")
 				a = a.replace(" ", "")
+				a = a.replace("&", "")
+				a = a.replace("\n", "")
 				b = a.split(",")
 
 				name = b[0].replace("\"", "")
+				name = name.replace("\'", "")
 				func = "ERROR"
-				print(b[1])
+				return_type = "NONE"
 				if b[1] in self.globals:
 					func = b[1]
+					return_type = self.globals[b[1]]["return_type"]
 
 				self.lua_mapping[name] = {
 					"type": "function",
-					"return_type": "",
+					"return_type": return_type,
 					"function": func
 				}
 
 	def write_output(self):
 		for key in self.lua_mapping:
 			mapping = self.lua_mapping[key]
-
-			print(mapping)
 
 			text = f"# Function: {key}\n"
 			text += f"Return type: {mapping['return_type']}\n"
@@ -86,7 +111,7 @@ class Docker:
 	def process(self):
 		print("[1/3]: Indexing sources(this may take a long time)")
 		self.index_sources()
-		print("[2/3]: Create mapping based on lua")
+		print("[2/3]: Creating mapping")
 		self.create_mapping()
 		print("[3/3]: Writing output file")
 		self.write_output()
