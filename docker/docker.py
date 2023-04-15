@@ -82,14 +82,16 @@ class Docker:
 				a = a.replace("&", "")
 				a = a.replace("\n", "")
 				b = a.split(",")
+				c = b[1].split("::")
+				c = c[-1:][0]
 
 				name = b[0].replace("\"", "")
 				name = name.replace("\'", "")
 				func = "ERROR"
 				return_type = "NONE"
-				if b[1] in self.globals:
-					func = b[1]
-					return_type = self.globals[b[1]]["return_type"]
+				if c in self.globals:
+					func = c
+					return_type = self.globals[c]["return_type"]
 
 				self.lua_mapping[name] = {
 					"type": "function",
